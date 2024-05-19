@@ -1,0 +1,244 @@
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <string>
+
+const int SCREEN_WIDTH = 1000;
+const int SCREEN_HEIGHT = 1000;
+const int BOARD_SIZE = 9;
+const int NUM_UNCOVERED = 10;
+const int CELL_SIZE = SCREEN_WIDTH / BOARD_SIZE;
+
+SDL_Window *window = nullptr;
+SDL_Renderer *renderer = nullptr;
+TTF_Font *font = nullptr; // Define font
+
+// Function to initialize SDL_ttf
+bool initSDL_ttf()
+{
+    if (TTF_Init() == -1)
+    {
+        std::cerr << "SDL_ttf initialization failed: " << TTF_GetError() << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// Function to quit SDL_ttf
+void quitSDL_ttf()
+{
+    TTF_Quit();
+}
+void drawText(SDL_Renderer *renderer, int x, int y, const std::string &text, SDL_Color color)
+{
+    SDL_Surface *surface = nullptr;
+    SDL_Texture *texture = nullptr;
+
+    // Load font (adjust path and size as needed)
+    TTF_Font *font = TTF_OpenFont("arial.ttf", 27);
+    if (!font)
+    {
+        std::cerr << "Failed to load font: " << TTF_GetError() << std::endl;
+        return;
+    }
+
+    // Render text to surface
+    surface = TTF_RenderText_Solid(font, text.c_str(), color);
+    if (!surface)
+    {
+        std::cerr << "Failed to render text: " << TTF_GetError() << std::endl;
+        TTF_CloseFont(font);
+        return;
+    }
+
+    // Create texture from surface
+    texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if (!texture)
+    {
+        std::cerr << "Failed to create texture: " << SDL_GetError() << std::endl;
+        SDL_FreeSurface(surface);
+        TTF_CloseFont(font);
+        return;
+    }
+
+    // Set texture position and size
+    SDL_Rect dstRect = {x, y, surface->w, surface->h};
+
+    // Render texture
+    SDL_RenderCopy(renderer, texture, nullptr, &dstRect);
+
+    // Cleanup
+    SDL_FreeSurface(surface);
+    SDL_DestroyTexture(texture);
+    TTF_CloseFont(font);
+}
+// Function to check if it's safe to place num at position (row, col)
+bool isSafe(const std::vector<std::vector<int>> &board, int row, int col, int num)
+{
+    // Check if num is not already in the current row, column, or 3x3 subgrid
+    for (int i = 0; i < BOARD_SIZE; ++i)
+    {
+        if (board[row][i] == num || board[i][col] == num ||
+            board[3 * (row / 3) + i / 3][3 * (col / 3) + i % 3] == num)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Function to generate a valid Sudoku board using backtracking
+bool generateSudokuBoard(std::vector<std::vector<int>> &board, int row = 0, int col = 0)
+{
+    if (row == BOARD_SIZE)
+    {
+        return true; // Base case: All rows filled, board is valid
+    }
+    int nextRow = (col == BOARD_SIZE - 1) ? row + 1 : row; // Move to the next row if current row is filled
+    int nextCol = (col + 1) % BOARD_SIZE;                  // Move to the next column
+    if (board[row][col] != 0)
+    {
+        return generateSudokuBoard(board, nextRow, nextCol); // Cell is already filled, move to the next cell
+    }
+    // Try placing numbers 1 to 9 in the current cell
+    for (int num = 1; num <= BOARD_SIZE; ++num)
+    {
+        if (isSafe(board, row, col, num))
+        {
+            board[row][col] = num; // Place num in the current cell
+            if (generateSudokuBoard(board, nextRow, nextCol))
+            {
+                return true; // Board is valid, return true
+            }
+            board[row][col] = 0; // Backtrack if num doesn't lead to a valid solution
+        }
+    }
+    return false; // No valid number found for the current cell
+}
+
+// Function to cover all but ten random spaces on the board
+void coverSpaces(std::vector<std::vector<int>> &board)
+{
+    std::srand(std::time(nullptr)); // Seed the random number generator
+    int count = 0;
+    while (count < BOARD_SIZE * BOARD_SIZE - NUM_UNCOVERED)
+    {
+        int row = std::rand() % BOARD_SIZE;
+        int col = std::rand() % BOARD_SIZE;
+        if (board[row][col] != 0)
+        {
+            board[row][col] = 0; // Cover the cell if it's not already covered
+            ++count;
+        }
+    }
+}
+
+void drawBoard(const std::vector<std::vector<int>> &board)
+{
+    // Clear the screen
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_RenderClear(renderer);
+
+    // Draw grid lines
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    for (int i = 0; i <= BOARD_SIZE; ++i)
+    {
+        SDL_RenderDrawLine(renderer, i * CELL_SIZE, 0, i * CELL_SIZE, SCREEN_HEIGHT);
+        SDL_RenderDrawLine(renderer, 0, i * CELL_SIZE, SCREEN_WIDTH, i * CELL_SIZE);
+    }
+
+    // Draw numbers on the board
+    for (int i = 0; i < BOARD_SIZE; ++i)
+    {
+        for (int j = 0; j < BOARD_SIZE; ++j)
+        {
+            if (board[i][j] != 0)
+            {
+                std::string number = std::to_string(board[i][j]);
+                int x = j * CELL_SIZE + (CELL_SIZE / 2) - 10; // Center text in cell
+                int y = i * CELL_SIZE + (CELL_SIZE / 2) - 10;
+                SDL_Color color = {0, 0, 0}; // Black color
+                drawText(renderer, x, y, number, color);
+            }
+        }
+    }
+
+    // Present the renderer
+    SDL_RenderPresent(renderer);
+}
+
+int main(int argc, char *args[])
+{
+    // Initialize SDL
+    if (SDL_Init(SDL_INIT_VIDEO) < 0)
+    {
+        std::cerr << "SDL initialization failed: " << SDL_GetError() << std::endl;
+        return 1;
+    }
+
+    // Initialize SDL_ttf
+    if (!initSDL_ttf())
+    {
+        SDL_Quit();
+        return 1;
+    }
+
+    // Create window
+    window = SDL_CreateWindow("Sudoku Game", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+    if (!window)
+    {
+        std::cerr << "Window creation failed: " << SDL_GetError() << std::endl;
+        return 1;
+    }
+
+    // Create renderer
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (!renderer)
+    {
+        std::cerr << "Renderer creation failed: " << SDL_GetError() << std::endl;
+        return 1;
+    }
+
+    // Load font
+    font = TTF_OpenFont("arial.ttf", 20); // Adjust font size as needed
+    if (!font)
+    {
+        std::cerr << "Failed to load font: " << TTF_GetError() << std::endl;
+        return 1;
+    }
+
+    // Create Sudoku board
+    std::vector<std::vector<int>> board(BOARD_SIZE, std::vector<int>(BOARD_SIZE, 0));
+    generateSudokuBoard(board);
+    coverSpaces(board);
+
+    // Draw the initial board
+    drawBoard(board);
+
+    // Main loop
+    bool quit = false;
+    SDL_Event e;
+    while (!quit)
+    {
+        // Event handling
+        while (SDL_PollEvent(&e) != 0)
+        {
+            if (e.type == SDL_QUIT)
+            {
+                quit = true;
+            }
+        }
+    }
+
+    // Cleanup
+    TTF_CloseFont(font);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    quitSDL_ttf(); // Quit SDL_ttf
+    SDL_Quit();
+
+    return 0;
+}
